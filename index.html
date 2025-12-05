@@ -127,18 +127,56 @@ Incorrect code
 </div>
 
 <script>
+// Beim Sperren speichern wir den Endzeitpunkt der Sperre
+function startLockTimer(seconds) {
+  const unlockTime = Date.now() + seconds * 1000; // Sperre bis X Uhrzeit
+  localStorage.setItem("oriLockTime", unlockTime);
+  lockSeconds = seconds;
+  lock = true;
+
+  lockTimer = setInterval(() => {
+    const now = Date.now();
+    lockSeconds = Math.max(0, Math.floor((unlockTime - now)/1000));
+    if(lockSeconds <= 0) {
+      clearInterval(lockTimer);
+      lock = false;
+      adminInput.style.display = "block"; // wieder sichtbar
+      localStorage.removeItem("oriLockTime");
+      attempts = 0;
+      adminAttempts = 3;
+      updateAdminAttempts();
+    }
+  }, 1000);
+}
+
+// Beim Laden prüfen, ob noch Sperre aktiv ist
+window.addEventListener("load", () => {
+  const savedTime = localStorage.getItem("oriLockTime");
+  if(savedTime) {
+    const remaining = Math.floor((savedTime - Date.now()) / 1000);
+    if(remaining > 0) {
+      startLockTimer(remaining);
+      adminInput.style.display = "none"; // während Sperre Input ausblenden
+      lock = true;
+    } else {
+      localStorage.removeItem("oriLockTime");
+    }
+  }
+});
 const correctUser = "Keng";
 const correctCode = "Ori";
 const adminCode = "Tyler";
-const maxAttempts = 5;
-const maxAdminAttempts = 3;
 
-let attempts = parseInt(localStorage.getItem('attempts')) || 0;
-let lockUntil = parseInt(localStorage.getItem('lockUntil')) || 0;
-let adminAttempts = parseInt(localStorage.getItem('adminAttempts')) || maxAdminAttempts;
+let attempts = 0;
+let maxAttempts = 5;
+let lock = false;
+let lockSeconds = 0; // Sperre in Sekunden
+let adminAttempts = 3;
+let lockTimer = null;
 
 const form = document.getElementById("codeForm");
 const feedback = document.getElementById("feedback");
+const binary = document.getElementById("binary");
 const attemptsDisplay = document.getElementById("attemptsDisplay");
 const adminSection = document.getElementById("adminSection");
 const adminInput = document.getElementById("adminInput");
@@ -154,59 +192,39 @@ function updateAdminAttempts() {
   adminAttemptsDisplay.textContent = "Admin attempts left: " + Math.max(0, adminAttempts);
 }
 
-function formatTime(seconds){
-  let m = Math.floor(seconds/60);
-  let s = seconds % 60;
-  return m.toString().padStart(2,'0') + ":" + s.toString().padStart(2,'0');
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m + "m " + s + "s";
 }
 
-function checkLock() {
-  const now = Date.now();
-  if(lockUntil && now < lockUntil){
-    const remaining = Math.ceil((lockUntil - now)/1000);
-    form.style.display = "none";
-    attemptsDisplay.style.display = "none";
-    adminSection.style.display = "block";
-    adminInput.style.display = adminAttempts > 0 ? "block" : "none";
-    adminLockDisplay.textContent = "Locked for: " + formatTime(remaining);
-    return remaining;
-  } else {
-    lockUntil = 0;
-    localStorage.removeItem('lockUntil');
-    form.style.display = "block";
-    attemptsDisplay.style.display = "block";
-    adminSection.style.display = "none";
-    adminLockDisplay.textContent = "";
-    attempts = 0;
-    localStorage.setItem('attempts', attempts);
-    adminAttempts = maxAdminAttempts;
-    localStorage.setItem('adminAttempts', adminAttempts);
-    updateAttempts();
-    updateAdminAttempts();
-    return 0;
-  }
-}
-
-let lockTimer = null;
-function startLockCountdown() {
-  if(lockTimer) clearInterval(lockTimer);
+function startLockTimer(seconds) {
+  lockSeconds = seconds;
   lockTimer = setInterval(() => {
-    let remaining = checkLock();
-    if(remaining <= 0){
+    lockSeconds--;
+    if(lockSeconds <= 0){
       clearInterval(lockTimer);
-      adminInput.value = "";
+      lockTimer = null;
+      lock = false;
+      attempts = 0;
+      updateAttempts();
+      form.style.display = "block";
+      attemptsDisplay.style.display = "block";
+      adminSection.style.display = "none";
+      adminLockDisplay.textContent = "";
+      adminAttempts = 3;
+      updateAdminAttempts();
+      adminInput.style.display = "block";
+      adminSubmit.style.display = "inline-block";
+    } else {
+      adminLockDisplay.textContent = "Locked: " + formatTime(lockSeconds);
     }
   }, 1000);
 }
 
-updateAttempts();
-updateAdminAttempts();
-checkLock();
-startLockCountdown();
-
 form.addEventListener("submit", function(e){
   e.preventDefault();
-  if(lockUntil && Date.now() < lockUntil) return;
+  if(lock) return;
 
   const benutzer = document.getElementById("benutzer").value;
   const code = document.getElementById("code").value;
@@ -218,61 +236,62 @@ form.addEventListener("submit", function(e){
     setTimeout(() => window.location.href = "info.html", 700);
   } else {
     attempts++;
-    localStorage.setItem('attempts', attempts);
     updateAttempts();
     feedback.textContent = "Incorrect code\n!!warning!!";
     feedback.className = "incorrect";
     feedback.style.display = "block";
-    setTimeout(() => { if(!lockUntil) feedback.style.display = "none"; }, 700);
+    setTimeout(() => { if(!lock) feedback.style.display = "none"; }, 700);
 
     if(attempts >= maxAttempts){
-      const now = Date.now();
-      lockUntil = now + 10*60*1000; // 10 Minuten
-      localStorage.setItem('lockUntil', lockUntil);
+      lock = true;
       form.style.display = "none";
       attemptsDisplay.style.display = "none";
+      feedback.style.display = "none";
       adminSection.style.display = "block";
-      adminInput.style.display = "block";
-      adminLockDisplay.textContent = "Locked for: 10:00\nAdmin code to unlock:";
-      startLockCountdown();
+      adminAttempts = 3;
+      updateAdminAttempts();
+
+      startLockTimer(600); // 10 Minuten
     }
   }
 });
 
-adminSubmit.addEventListener("click", function(){
-  if(lockUntil && Date.now() < lockUntil && adminAttempts > 0){
-    const entered = adminInput.value;
-    if(entered === adminCode){
-      lockUntil = 0;
-      localStorage.removeItem('lockUntil');
-      attempts = 0;
-      localStorage.setItem('attempts', attempts);
-      form.style.display = "block";
-      attemptsDisplay.style.display = "block";
-      adminSection.style.display = "none";
-      adminLockDisplay.textContent = "";
-      adminInput.value = "";
-      adminAttempts = maxAdminAttempts;
-      localStorage.setItem('adminAttempts', adminAttempts);
-      updateAdminAttempts();
-      alert("Admin-Code accepted! You can try again.");
-    } else {
-      adminAttempts--;
-      localStorage.setItem('adminAttempts', adminAttempts);
-      updateAdminAttempts();
-      adminLockDisplay.textContent = "Incorrect Admin-Code!";
-      if(adminAttempts <= 0){
-        adminInput.style.display = "none";
-        const now = Date.now();
-        lockUntil = now + (10+60)*60*1000; // 10 Minuten + 1 Stunde
-        localStorage.setItem('lockUntil', lockUntil);
-        startLockCountdown();
-        alert("Admin-Code limit reached. Page closing and 1 hour added to lock.");
-        window.close();
-      }
+// Admin-Code Event
+adminSubmit.addEventListener("click", function() {
+  const entered = adminInput.value.trim();
+
+  if(entered === adminCode){
+    lock = false;
+    attempts = 0;
+    form.style.display = "block";
+    attemptsDisplay.style.display = "block";
+    feedback.style.display = "none";
+    adminSection.style.display = "none";
+    adminLockDisplay.textContent = "";
+    adminAttempts = 3;
+    updateAdminAttempts();
+    adminInput.value = "";
+    alert("Admin-Code accepted! You can try again.");
+  } else {
+    adminAttempts--;
+    updateAdminAttempts();
+    adminLockDisplay.textContent = "Incorrect Admin-Code!";
+
+    if(adminAttempts <= 0){
+      // Admin-Feld + Button ausblenden
+      adminInput.style.display = "none";
+      adminSubmit.style.display = "none";
+
+      // Sperre: 1 Stunde auf bestehenden Timer draufpacken
+      let totalLock = lockSeconds + 3600;
+      startLockTimer(totalLock);
+
+      alert("Admin-Code limit reached. Page closing.");
+      window.close();
     }
   }
 });
 </script>
+
 </body>
 </html>
